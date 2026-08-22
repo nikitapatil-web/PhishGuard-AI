@@ -11,6 +11,19 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173)
 
+## Backend API
+
+Install the Python dependencies and start the API in a second terminal:
+
+```bash
+python -m pip install -r backend/requirements.txt
+python -m uvicorn app.main:app --app-dir backend --reload --port 8000
+```
+
+The Vite development server proxies frontend API calls to `http://localhost:8000`. Set `VITE_API_URL` to use a different API host.
+
+The prototype includes local demo authentication. Enter any valid email and a password of at least four characters; production deployments should replace this with an identity provider.
+
 ## Pages
 
 | Route | Screen | Figma Mockup |

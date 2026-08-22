@@ -5,6 +5,12 @@ import { Button } from '../components/ui/Button';
 import { RiskGauge } from '../components/ui/RiskGauge';
 import { Badge } from '../components/ui/Badge';
 import { threatAnalysis } from '../data/mockData';
+import type { ScanResult } from '../lib/api';
+import { useLocation } from 'react-router-dom';
+
+function riskLabel(riskLevel: ScanResult['riskLevel']) {
+  return riskLevel === 'high-risk' ? 'High Risk Threat' : riskLevel === 'suspicious' ? 'Suspicious URL' : 'Safe URL';
+}
 
 function StatusIcon({ status }: { status: 'pass' | 'fail' | 'warning' }) {
   if (status === 'pass') return <CheckCircle className="w-4 h-4 text-success" />;
@@ -13,7 +19,9 @@ function StatusIcon({ status }: { status: 'pass' | 'fail' | 'warning' }) {
 }
 
 export function ThreatAnalysisPage() {
-  const { url, score, riskLevel, aiExplanation, signalVectors, safetyProtocol } = threatAnalysis;
+  const location = useLocation();
+  const result = location.state?.result as ScanResult | undefined;
+  const { url, score, riskLevel, aiExplanation, signalVectors, safetyProtocol } = result ?? threatAnalysis;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -29,7 +37,7 @@ export function ThreatAnalysisPage() {
           {/* Risk Score - asset #5 risk-meter */}
           <Card className="flex flex-col items-center justify-center text-center" glow="red">
             <RiskGauge score={score} />
-            <Badge variant={riskLevel} className="mt-4">High Risk Threat</Badge>
+            <Badge variant={riskLevel} className="mt-4">{riskLabel(riskLevel)}</Badge>
             <p className="text-text-muted text-xs mt-2 font-mono break-all px-2">{url}</p>
           </Card>
 

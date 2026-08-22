@@ -7,8 +7,14 @@ import { DashboardPage } from './pages/DashboardPage';
 import { QRScannerPage } from './pages/QRScannerPage';
 import { SimulatorPage } from './pages/SimulatorPage';
 import { HistoryPage } from './pages/HistoryPage';
+import { LoginPage } from './pages/LoginPage';
+import { useState } from 'react';
 
 export default function App() {
+  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('phishguard-authenticated') === 'true');
+
+  if (!authenticated) return <LoginPage onLogin={() => setAuthenticated(true)} />;
+
   return (
     <BrowserRouter>
       <Routes>

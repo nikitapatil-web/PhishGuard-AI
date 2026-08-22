@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Upload, Activity, Database, Wifi } from 'lucide-react';
 import { TopBar } from '../components/layout/TopBar';
 import { SearchBar } from '../components/ui/SearchBar';
@@ -7,10 +7,41 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { recentScans } from '../data/mockData';
 import { useNavigate } from 'react-router-dom';
+import { scanFile, scanUrl } from '../lib/api';
 
 export function ScannerPage() {
   const [tab, setTab] = useState<'url' | 'file'>('url');
+  const [error, setError] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+
+  const handleScan = async (url: string) => {
+    setError('');
+    setScanning(true);
+    try {
+      const result = await scanUrl(url);
+      navigate('/analysis', { state: { result } });
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Unable to scan this URL');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setError('');
+    setScanning(true);
+    try {
+      const result = await scanFile(file);
+      navigate('/analysis', { state: { result } });
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Unable to scan this file');
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const systemHealth = [
     { label: 'AI Sync', status: 'Operational', icon: Activity },
@@ -50,15 +81,21 @@ export function ScannerPage() {
                 <SearchBar
                   size="lg"
                   buttonText="Scan Now"
-                  onScan={() => navigate('/analysis')}
+                  onScan={handleScan}
                 />
               ) : (
-                <div className="border-2 border-dashed border-border rounded-xl p-12 text-center hover:border-primary/50 transition-colors cursor-pointer">
+                <div
+                  className="border-2 border-dashed border-border rounded-xl p-12 text-center hover:border-primary/50 transition-colors cursor-pointer"
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <input ref={fileInput} type="file" accept=".pdf,.html,.htm,.eml,.txt" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />
                   <Upload className="w-10 h-10 text-text-muted mx-auto mb-3" />
                   <p className="text-text-muted text-sm">Drop a file here or click to upload</p>
                   <p className="text-text-muted text-xs mt-1">Supports PDF, HTML, EML up to 10MB</p>
                 </div>
               )}
+              {scanning && <p className="mt-3 text-sm text-text-muted">Analyzing URL...</p>}
+              {error && <p className="mt-3 text-sm text-danger">{error}</p>}
             </Card>
 
             <Card>
@@ -100,7 +137,7 @@ export function ScannerPage() {
             <Card>
               <h3 className="font-semibold mb-2">Bulk Scan Tool</h3>
               <p className="text-text-muted text-sm mb-4">Upload a CSV with multiple URLs for batch analysis.</p>
-              <Button variant="secondary" size="sm" className="w-full">
+              <Button variant="secondary" size="sm" className="w-full" onClick={() => fileInput.current?.click()}>
                 <Upload className="w-4 h-4" />
                 Upload CSV
               </Button>

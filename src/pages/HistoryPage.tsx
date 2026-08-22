@@ -3,11 +3,18 @@ import { TopBar } from '../components/layout/TopBar';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { RiskGauge } from '../components/ui/RiskGauge';
-import { historyRecords } from '../data/mockData';
+import type { ScanResult } from '../lib/api';
+import { getHistory } from '../lib/api';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 export function HistoryPage() {
   const navigate = useNavigate();
+  const [records, setRecords] = useState<ScanResult[]>([]);
+
+  useEffect(() => {
+    getHistory().then(setRecords).catch(() => undefined);
+  }, []);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -36,11 +43,11 @@ export function HistoryPage() {
                 </tr>
               </thead>
               <tbody>
-                {historyRecords.map((record) => (
+                {records.map((record) => (
                   <tr
                     key={record.id}
                     className="border-b border-border/50 hover:bg-bg-elevated/30 cursor-pointer transition-colors"
-                    onClick={() => navigate('/analysis')}
+                    onClick={() => navigate('/analysis', { state: { result: record } })}
                   >
                     <td className="py-4 pr-4 text-text-muted whitespace-nowrap">{record.timestamp}</td>
                     <td className="py-4 pr-4 font-mono truncate max-w-xs">{record.url}</td>

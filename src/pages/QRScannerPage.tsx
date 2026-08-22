@@ -1,12 +1,28 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Camera, Upload, Shield, QrCode } from 'lucide-react';
 import { TopBar } from '../components/layout/TopBar';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { scanQr } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
 
 export function QRScannerPage() {
   const [mode, setMode] = useState<'camera' | 'upload'>('camera');
+  const [error, setError] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setError('');
+    try {
+      const result = await scanQr(file);
+      navigate('/analysis', { state: { result } });
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Unable to scan this QR image');
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -53,9 +69,11 @@ export function QRScannerPage() {
               <div className="absolute bottom-4 right-4 w-8 h-8 border-b-2 border-r-2 border-primary" />
             </div>
 
-            <Button className="w-full mt-4">
-              {mode === 'camera' ? 'Start Camera' : 'Choose File'}
+            <input ref={fileInput} type="file" accept=".png,.jpg,.jpeg,.webp" className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />
+            <Button className="w-full mt-4" onClick={() => fileInput.current?.click()}>
+              {mode === 'camera' ? 'Choose QR Image' : 'Choose File'}
             </Button>
+            {error && <p className="mt-3 text-sm text-danger">{error}</p>}
           </Card>
 
           {/* Info panel - asset #17 */}
