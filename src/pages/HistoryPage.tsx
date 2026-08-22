@@ -11,9 +11,14 @@ import { useNavigate } from 'react-router-dom';
 export function HistoryPage() {
   const navigate = useNavigate();
   const [records, setRecords] = useState<ScanResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    getHistory().then(setRecords).catch(() => undefined);
+    getHistory()
+      .then(setRecords)
+      .catch((historyError) => setError(historyError instanceof Error ? historyError.message : 'Unable to load scan history'))
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -43,6 +48,9 @@ export function HistoryPage() {
                 </tr>
               </thead>
               <tbody>
+                {loading && <tr><td colSpan={5} className="py-8 text-center text-text-muted">Loading scan history...</td></tr>}
+                {!loading && error && <tr><td colSpan={5} className="py-8 text-center text-danger">{error}. Start the backend on port 8000 and refresh.</td></tr>}
+                {!loading && !error && records.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-text-muted">No scans have been recorded yet.</td></tr>}
                 {records.map((record) => (
                   <tr
                     key={record.id}

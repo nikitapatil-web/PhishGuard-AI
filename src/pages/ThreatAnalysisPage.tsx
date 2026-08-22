@@ -22,6 +22,8 @@ export function ThreatAnalysisPage() {
   const location = useLocation();
   const result = location.state?.result as ScanResult | undefined;
   const { url, score, riskLevel, aiExplanation, signalVectors, safetyProtocol } = result ?? threatAnalysis;
+  const websiteAnalysis = result?.websiteAnalysis ?? [];
+  const reasons = result?.reasons ?? signalVectors.map(({ detail }) => detail);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -81,6 +83,20 @@ export function ThreatAnalysisPage() {
           <p className="text-sm text-text-muted mb-1 font-medium">Why is this dangerous?</p>
           <p className="text-sm leading-relaxed">{aiExplanation}</p>
         </Card>
+        <Card className="mt-6">
+          <h3 className="font-semibold mb-3">Why This Website Is {riskLevel === 'safe' ? 'Safe' : 'Risky'}</h3>
+          <ul className="space-y-2 text-sm text-text-muted">
+            {reasons.map((reason) => <li key={reason} className="flex gap-2"><span className={riskLevel === 'safe' ? 'text-success' : 'text-warning'}>•</span>{reason}</li>)}
+          </ul>
+        </Card>
+        {websiteAnalysis.length > 0 && (
+          <Card className="mt-6">
+            <h3 className="font-semibold mb-3">Website Content Analysis</h3>
+            <ul className="space-y-2 text-sm text-text-muted">
+              {websiteAnalysis.map((finding) => <li key={finding}>{finding}</li>)}
+            </ul>
+          </Card>
+        )}
       </main>
     </div>
   );

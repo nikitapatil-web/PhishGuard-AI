@@ -3,9 +3,14 @@
 import sys
 import re
 import base64
+import csv
 import json
 import os
+import socket
+import urllib.request
+from ipaddress import ip_address
 from io import BytesIO
+from io import StringIO
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlite3 import Connection, connect
@@ -38,6 +43,8 @@ class ScanRecord(BaseModel):
     signalVectors: list[dict[str, str]]
     safetyProtocol: list[dict[str, str]]
     externalChecks: list[dict[str, str]] = []
+    websiteAnalysis: list[str] = []
+    reasons: list[str] = []
 
 
 app = FastAPI(title="PhishGuard AI API", version="1.0.0")
@@ -89,7 +96,7 @@ def _model_prediction(url: str, features: dict[str, float]) -> float:
     return float(probabilities[1] * 100)
 
 
-def _build_record(url: str, score: int, timestamp: str, record_id: int) -> ScanRecord:
+def _build_record(url: str, score: int, timestamp: str, record_id: int, inspect_website: bool = True) -> ScanRecord:
     features = extract_features(url)
     hostname = urlparse(url if "://" in url else f"http://{url}").hostname or url
     risk_level = "high-risk" if score >= 70 else "suspicious" if score >= 40 else "safe"
@@ -108,7 +115,56 @@ def _build_record(url: str, score: int, timestamp: str, record_id: int) -> ScanR
         {"text": "Do not enter credentials unless you trust the destination", "type": "dont" if risk_level != "safe" else "do"},
         {"text": "Verify the domain through an independent source", "type": "do"},
     ]
-    return ScanRecord(id=record_id, url=url, score=score, riskLevel=risk_level, timestamp=timestamp, threatType=threat_type, aiExplanation=explanation, signalVectors=signals, safetyProtocol=safety, externalChecks=_external_checks(url))
+    reasons: list[str] = []
+    if features["suspicious_keyword_ratio"] > 0:
+        reasons.append("The URL contains suspicious words commonly used in phishing links.")
+    if features["suspicious_tld"]:
+        reasons.append("The domain uses a top-level domain frequently seen in suspicious links.")
+    if features["brand_impersonation"] or features["homoglyph_pattern"]:
+        reasons.append("The URL may imitate a trusted brand or use deceptive spelling.")
+    if features["has_ip"]:
+        reasons.append("The destination uses an IP address instead of a normal domain name.")
+    if not features["has_https"]:
+        reasons.append("The URL does not use HTTPS, so the connection is not securely encrypted.")
+    if features["long_subdomain"] or features["url_length"] > 120:
+        reasons.append("The URL has an unusually long or complex structure.")
+    if not reasons:
+        reasons.append("No strong phishing indicators were found in the URL structure.")
+    website_analysis = _inspect_website(url) if inspect_website else []
+    external_checks = _external_checks(url) if inspect_website else []
+    return ScanRecord(id=record_id, url=url, score=score, riskLevel=risk_level, timestamp=timestamp, threatType=threat_type, aiExplanation=explanation, signalVectors=signals, safetyProtocol=safety, externalChecks=external_checks, websiteAnalysis=website_analysis, reasons=reasons)
+
+
+def _inspect_website(url: str) -> list[str]:
+    """Inspect a small public page snapshot without following redirects."""
+    parsed = urlparse(url if "://" in url else f"http://{url}")
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ["Website content was not inspected: unsupported URL scheme."]
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, None)
+        if any(ip_address(address[4][0]).is_private or ip_address(address[4][0]).is_loopback or ip_address(address[4][0]).is_link_local or ip_address(address[4][0]).is_reserved for address in addresses):
+            return ["Website content was not inspected: private network destinations are blocked."]
+        request = urllib.request.Request(url, headers={"User-Agent": "PhishGuard-AI-Scanner/1.0"})
+        with urllib.request.urlopen(request, timeout=3) as response:
+            content_type = response.headers.get_content_type()
+            if content_type not in {"text/html", "application/xhtml+xml"}:
+                return [f"Website content was not inspected: response type is {content_type}."]
+            page = response.read(1_000_001).decode("utf-8", errors="ignore")
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", page, flags=re.IGNORECASE | re.DOTALL)
+        title = re.sub(r"\\s+", " ", title_match.group(1)).strip() if title_match else "No page title found"
+        findings = [f"Page title: {title[:160]}"]
+        if re.search(r"<form", page, flags=re.IGNORECASE):
+            findings.append("Login or data-entry form detected.")
+        if re.search(r"type=[\\\"']password[\\\"']|password", page, flags=re.IGNORECASE):
+            findings.append("Password-related content detected.")
+        urgency = len(re.findall(r"urgent|verify now|account suspended|confirm identity|limited time", page, flags=re.IGNORECASE))
+        if urgency:
+            findings.append(f"Urgency language detected ({urgency} match{'es' if urgency != 1 else ''}).")
+        if len(page) >= 1_000_001:
+            findings.append("Only the first 1MB of page content was inspected.")
+        return findings
+    except Exception as error:
+        return [f"Website content could not be inspected: {type(error).__name__}."]
 
 
 def _external_checks(url: str) -> list[dict[str, str]]:
@@ -189,6 +245,30 @@ async def scan_file(file: UploadFile = File(...)) -> ScanRecord:
     return _save_record(_build_record(url, score, timestamp, 0))
 
 
+@app.post("/api/scan-csv", response_model=list[ScanRecord])
+async def scan_csv(file: UploadFile = File(...)) -> list[ScanRecord]:
+    if Path(file.filename or "").suffix.lower() != ".csv":
+        raise HTTPException(status_code=415, detail="Upload a CSV file")
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File must be 10MB or smaller")
+    rows = list(csv.DictReader(StringIO(content.decode("utf-8-sig", errors="ignore"))))
+    if not rows or "url" not in rows[0]:
+        raise HTTPException(status_code=422, detail="CSV must contain a 'url' column")
+    records: list[ScanRecord] = []
+    for row in rows[:100]:
+        url = row.get("url", "").strip()
+        if not url:
+            continue
+        parsed = urlparse(url if "://" in url else f"http://{url}")
+        if parsed.hostname:
+            score = round(_model_prediction(url, extract_features(url)))
+            records.append(_save_record(_build_record(url, score, datetime.now(timezone.utc).isoformat(), 0)))
+    if not records:
+        raise HTTPException(status_code=422, detail="CSV contains no valid URLs")
+    return records
+
+
 @app.post("/api/scan-qr", response_model=ScanRecord)
 async def scan_qr(file: UploadFile = File(...)) -> ScanRecord:
     if Path(file.filename or "").suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
@@ -217,4 +297,4 @@ def history() -> list[ScanRecord]:
     database = _database()
     rows = database.execute("SELECT id, url, score, timestamp, threat_type FROM scans ORDER BY id DESC LIMIT 50").fetchall()
     database.close()
-    return [_build_record(url, score, timestamp, record_id) for record_id, url, score, timestamp, _ in rows]
+    return [_build_record(url, score, timestamp, record_id, inspect_website=False) for record_id, url, score, timestamp, _ in rows]

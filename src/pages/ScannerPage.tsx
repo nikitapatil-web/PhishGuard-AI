@@ -7,13 +7,14 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { recentScans } from '../data/mockData';
 import { useNavigate } from 'react-router-dom';
-import { scanFile, scanUrl } from '../lib/api';
+import { scanCsv, scanFile, scanUrl } from '../lib/api';
 
 export function ScannerPage() {
   const [tab, setTab] = useState<'url' | 'file'>('url');
   const [error, setError] = useState('');
   const [scanning, setScanning] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const csvInput = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   const handleScan = async (url: string) => {
@@ -38,6 +39,20 @@ export function ScannerPage() {
       navigate('/analysis', { state: { result } });
     } catch (scanError) {
       setError(scanError instanceof Error ? scanError.message : 'Unable to scan this file');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleCsv = async (file: File | undefined) => {
+    if (!file) return;
+    setError('');
+    setScanning(true);
+    try {
+      const results = await scanCsv(file);
+      navigate('/analysis', { state: { result: results[0], batchCount: results.length } });
+    } catch (scanError) {
+      setError(scanError instanceof Error ? scanError.message : 'Unable to scan this CSV');
     } finally {
       setScanning(false);
     }
@@ -94,7 +109,7 @@ export function ScannerPage() {
                   <p className="text-text-muted text-xs mt-1">Supports PDF, HTML, EML up to 10MB</p>
                 </div>
               )}
-              {scanning && <p className="mt-3 text-sm text-text-muted">Analyzing URL...</p>}
+              {scanning && <p className="mt-3 text-sm text-text-muted">Analyzing submission...</p>}
               {error && <p className="mt-3 text-sm text-danger">{error}</p>}
             </Card>
 
@@ -137,7 +152,8 @@ export function ScannerPage() {
             <Card>
               <h3 className="font-semibold mb-2">Bulk Scan Tool</h3>
               <p className="text-text-muted text-sm mb-4">Upload a CSV with multiple URLs for batch analysis.</p>
-              <Button variant="secondary" size="sm" className="w-full" onClick={() => fileInput.current?.click()}>
+              <input ref={csvInput} type="file" accept=".csv" className="hidden" onChange={(event) => handleCsv(event.target.files?.[0])} />
+              <Button variant="secondary" size="sm" className="w-full" onClick={() => csvInput.current?.click()}>
                 <Upload className="w-4 h-4" />
                 Upload CSV
               </Button>
